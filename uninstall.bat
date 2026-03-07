@@ -18,19 +18,16 @@ if %errorlevel% neq 0 (
 echo Stopping running instance (if any)...
 taskkill /im "%EXE_NAME%" /f >nul 2>&1
 
-:: Remove scheduled task
+:: Remove autostart registry entry
+echo Removing startup entry...
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v "%TASK_NAME%" /f >nul 2>&1
+echo Startup entry removed (or was not present).
+
+:: Remove legacy scheduled task if present from an older install
 schtasks /query /tn "%TASK_NAME%" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo Removing scheduled task "%TASK_NAME%"...
-    schtasks /delete /tn "%TASK_NAME%" /f >nul
-    if %errorlevel% neq 0 (
-        echo ERROR: Failed to remove scheduled task.
-        pause
-        exit /b 1
-    )
-    echo Scheduled task removed.
-) else (
-    echo Scheduled task "%TASK_NAME%" not found, skipping.
+    echo Removing legacy scheduled task "%TASK_NAME%"...
+    schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
 )
 
 :: Remove install directory

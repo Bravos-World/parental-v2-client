@@ -68,15 +68,25 @@ set /p CFG_PIN=Unlock PIN [default: 1234]:
 echo.
 
 :: ---------------------------------------------------------------
-::  Create install directory
+::  Create install directory (remove old one first)
 :: ---------------------------------------------------------------
-if not exist "%INSTALL_DIR%" (
-    mkdir "%INSTALL_DIR%"
-    if %errorlevel% neq 0 (
-        echo ERROR: Failed to create directory %INSTALL_DIR%
+if exist "%INSTALL_DIR%" (
+    echo Stopping running instance (if any)...
+    taskkill /im "%EXE_NAME%" /f >nul 2>&1
+    echo Removing existing installation directory...
+    rmdir /s /q "%INSTALL_DIR%"
+    if exist "%INSTALL_DIR%" (
+        echo ERROR: Failed to remove %INSTALL_DIR%.
+        echo        Close any programs using files in that folder and try again.
         pause
         exit /b 1
     )
+)
+mkdir "%INSTALL_DIR%"
+if %errorlevel% neq 0 (
+    echo ERROR: Failed to create directory %INSTALL_DIR%
+    pause
+    exit /b 1
 )
 
 :: Copy executable
@@ -84,6 +94,33 @@ echo Copying %EXE_NAME% to %INSTALL_DIR%...
 copy /y "%~dp0%EXE_NAME%" "%INSTALL_DIR%\%EXE_NAME%" >nul
 if %errorlevel% neq 0 (
     echo ERROR: Failed to copy %EXE_NAME%.
+    pause
+    exit /b 1
+)
+
+:: Write launcher.vbs - waits for internet connectivity then launches app silently
+echo Writing launcher.vbs...
+> "%INSTALL_DIR%\launcher.vbs" (
+    echo Dim shell, fso, exePath, http, i
+    echo Set shell = CreateObject^("WScript.Shell"^)
+    echo Set fso = CreateObject^("Scripting.FileSystemObject"^)
+    echo exePath = fso.GetParentFolderName^(WScript.ScriptFullName^) ^& "\ParentClient.exe"
+    echo For i = 1 To 60
+    echo     On Error Resume Next
+    echo     Set http = CreateObject^("MSXML2.ServerXMLHTTP.6.0"^)
+    echo     http.Open "HEAD", "http://clients3.google.com/generate_204", False
+    echo     http.setTimeouts 0, 3000, 3000, 3000
+    echo     http.Send
+    echo     If Err.Number = 0 And http.Status ^> 0 Then
+    echo         Exit For
+    echo     End If
+    echo     On Error GoTo 0
+    echo     WScript.Sleep 2000
+    echo Next
+    echo shell.Run Chr^(34^) ^& exePath ^& Chr^(34^), 0, False
+)
+if %errorlevel% neq 0 (
+    echo ERROR: Failed to write launcher.vbs.
     pause
     exit /b 1
 )
@@ -104,34 +141,36 @@ if %errorlevel% neq 0 (
 )
 
 :: ---------------------------------------------------------------
-::  Register scheduled task
+::  Register autostart via registry (runs for all users at logon,
+::  in each user's own desktop session — required for GUI apps)
 :: ---------------------------------------------------------------
+set "TASK_EXE=%INSTALL_DIR%\%EXE_NAME%"
+
+:: Remove legacy scheduled task from a previous install if present
 schtasks /query /tn "%TASK_NAME%" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo Removing existing scheduled task...
-    schtasks /delete /tn "%TASK_NAME%" /f >nul
+    echo Removing legacy scheduled task...
+    schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
 )
 
-echo Registering scheduled task "%TASK_NAME%"...
-schtasks /create ^
-    /tn "%TASK_NAME%" ^
-    /tr "\"%INSTALL_DIR%\%EXE_NAME%\"" ^
-    /sc ONLOGON ^
-    /rl HIGHEST ^
-    /f >nul
+echo Registering startup entry...
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v "%TASK_NAME%" /t REG_SZ /d "wscript.exe /nologo \"%INSTALL_DIR%\launcher.vbs\"" /f >nul 2>&1
 
 if %errorlevel% neq 0 (
-    echo ERROR: Failed to register scheduled task.
+    echo ERROR: Failed to register startup entry.
     pause
     exit /b 1
 )
+
+echo Launching application...
+start "" "%TASK_EXE%"
 
 echo.
 echo ============================================
 echo  Installation complete.
 echo  Installed to : %INSTALL_DIR%
-echo  Task name    : %TASK_NAME%
-echo  %EXE_NAME% will start automatically on next logon.
+echo  %EXE_NAME% is now running and will auto-start
+echo  at logon once internet connectivity is available.
 echo ============================================
 echo.
 pause
