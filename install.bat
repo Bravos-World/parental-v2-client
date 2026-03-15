@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 :: ---------------------------------------------------------------
 ::  Edit DOWNLOAD_URL to point to your hosted ParentClient.exe
 :: ---------------------------------------------------------------
-set "DOWNLOAD_URL=https://github.com/Bravos-World/parental-v2-client/releases/download/1.0.0/ParentClient.exe"
+set "DOWNLOAD_URL=https://github.com/Bravos-World/parental-v2-client/releases/download/1.0.1/ParentClient.exe"
 :: ---------------------------------------------------------------
 
 set "TASK_NAME=ParentClient"
