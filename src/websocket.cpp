@@ -96,6 +96,12 @@ bool WsConnect() {
     g_pingRunning.store(false);
     g_connected.store(false);
 
+    if (g_hWebSocket) {
+        WinHttpWebSocketClose(g_hWebSocket, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+        WinHttpCloseHandle(g_hWebSocket);
+        g_hWebSocket = nullptr;
+    }
+
     if (g_recvThread.joinable()) g_recvThread.join();
     if (g_pingThread.joinable()) g_pingThread.join();
 
@@ -184,12 +190,14 @@ bool WsConnect() {
 void WsDisconnect() {
     g_recvRunning.store(false);
     g_pingRunning.store(false);
+    g_connected.store(false);
 
-    if (g_hWebSocket && g_connected.load()) {
+    if (g_hWebSocket) {
         LogInfo("Closing WebSocket connection");
         WinHttpWebSocketClose(g_hWebSocket, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
+        WinHttpCloseHandle(g_hWebSocket);
+        g_hWebSocket = nullptr;
     }
-    g_connected.store(false);
 
     if (g_recvThread.joinable()) g_recvThread.join();
     if (g_pingThread.joinable()) g_pingThread.join();

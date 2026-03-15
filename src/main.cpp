@@ -36,7 +36,10 @@ static void SendRegister() {
 static void OnMessage(const std::string& msg) {
     if (g_hMsgWnd) {
         std::string* pMsg = new std::string(msg);
-        PostMessageW(g_hMsgWnd, WM_USER + 200, (WPARAM)pMsg, 0);
+        if (!PostMessageW(g_hMsgWnd, WM_USER + 200, (WPARAM)pMsg, 0)) {
+            delete pMsg;
+            LogError("PostMessage failed in OnMessage");
+        }
     }
 }
 

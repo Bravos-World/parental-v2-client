@@ -16,6 +16,7 @@
 #define IDC_MSG_DISMISS 1010
 #define COUNTDOWN_TIMER_ID 5001
 #define TOPMOST_TIMER_ID 5002
+#define OVERLAY_ACTION_MSG (WM_APP + 101)
 
 static HWND g_overlayWnd = nullptr;
 static HWND g_statusLabel = nullptr;
@@ -149,6 +150,15 @@ static void RemoveHooks() {
 
 static LRESULT CALLBACK OverlayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case OVERLAY_ACTION_MSG: {
+        std::wstring* action = reinterpret_cast<std::wstring*>(wParam);
+        if (action) {
+            if (g_actionCallback) g_actionCallback(*action);
+            delete action;
+        }
+        return 0;
+    }
+
     case WM_CREATE:
         return 0;
 

@@ -27,6 +27,14 @@ static std::wstring Utf8ToWide(const std::string& s) {
 	return w;
 }
 
+static std::string WideToUtf8(const std::wstring& w) {
+	if (w.empty()) return "";
+	int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+	std::string s(len, '\0');
+	WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], len, nullptr, nullptr);
+	return s;
+}
+
 static std::string ToUpperAscii(std::string value) {
 	std::transform(value.begin(), value.end(), value.begin(),
 		[](unsigned char c) { return static_cast<char>(std::toupper(c)); });
@@ -71,13 +79,22 @@ static void OnPinEntered(const std::wstring& pin) {
 }
 
 static void OnOverlayAction(const std::wstring& action) {
-	if (action == L"SHUTDOWN") {
+    const std::string normalizedAction = ToUpperAscii(WideToUtf8(action));
+	if (normalizedAction == "SHUTDOWN") {
 		LogInfo("Overlay action: SHUTDOWN");
 		ExecuteCommand("SHUTDOWN");
 	}
-	else if (action == L"RESTART") {
+	else if (normalizedAction == "RESTART") {
 		LogInfo("Overlay action: RESTART");
 		ExecuteCommand("RESTART");
+	}
+	else if (normalizedAction == "LOCK") {
+		LogInfo("Overlay action: LOCK");
+		ExecuteCommand("LOCK");
+	}
+	else if (normalizedAction == "UNLOCK") {
+		LogInfo("Overlay action: UNLOCK");
+		ExecuteCommand("UNLOCK");
 	}
 }
 
@@ -122,8 +139,13 @@ static void DelayedExecute(const std::string& command, int delaySec) {
 		Sleep(100);
 	}
 
-	if (!g_delayCancelled.load()) {
-		ExecuteCommand(command);
+ if (!g_delayCancelled.load()) {
+		std::wstring* action = new std::wstring(Utf8ToWide(ToUpperAscii(command)));
+		HWND overlayHwnd = OverlayGetHwnd();
+		if (!overlayHwnd || !PostMessageW(overlayHwnd, WM_APP + 101, (WPARAM)action, 0)) {
+			delete action;
+			LogError("Failed to post scheduled action to UI thread");
+		}
 	}
 }
 
