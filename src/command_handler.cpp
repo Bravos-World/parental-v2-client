@@ -5,6 +5,9 @@
 #include "json.hpp"
 #include <thread>
 #include <atomic>
+#include <algorithm>
+#include <cctype>
+#include <shellapi.h>
 
 using json = nlohmann::json;
 
@@ -14,12 +17,26 @@ static std::atomic<bool> g_pendingAction{ false };
 static std::thread g_delayThread;
 static std::atomic<bool> g_delayCancelled{ false };
 
+static void ExecuteCommand(const std::string& command);
+
 static std::wstring Utf8ToWide(const std::string& s) {
 	if (s.empty()) return L"";
 	int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
 	std::wstring w(len, L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
 	return w;
+}
+
+static std::string ToUpperAscii(std::string value) {
+	std::transform(value.begin(), value.end(), value.begin(),
+		[](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+	return value;
+}
+
+static bool ExecutePowerAction(bool restart) {
+	LPCWSTR args = restart ? L"/r /t 0 /f" : L"/s /t 0 /f";
+	HINSTANCE result = ShellExecuteW(nullptr, L"open", L"shutdown.exe", args, nullptr, SW_HIDE);
+	return reinterpret_cast<INT_PTR>(result) > 32;
 }
 
 static void SendStatus(const std::string& lockStatus) {
@@ -53,59 +70,44 @@ static void OnPinEntered(const std::wstring& pin) {
 	}
 }
 
+static void OnOverlayAction(const std::wstring& action) {
+	if (action == L"SHUTDOWN") {
+		LogInfo("Overlay action: SHUTDOWN");
+		ExecuteCommand("SHUTDOWN");
+	}
+	else if (action == L"RESTART") {
+		LogInfo("Overlay action: RESTART");
+		ExecuteCommand("RESTART");
+	}
+}
+
 static void ExecuteCommand(const std::string& command) {
-	if (command == "LOCK") {
+	const std::string normalizedCommand = ToUpperAscii(command);
+
+	if (normalizedCommand == "LOCK") {
 		OverlayShow(L"Computer Locked");
 		SendStatus("LOCKED");
 		SendEvent("LOCK");
 		TraySetStatusText(L"Status: Locked");
 	}
-	else if (command == "UNLOCK") {
+	else if (normalizedCommand == "UNLOCK") {
 		g_delayCancelled.store(true);
 		OverlayHide();
 		SendStatus("UNLOCKED");
 		SendEvent("UNLOCK");
 		TraySetStatusText(L"Status: Unlocked");
 	}
-	else if (command == "SHUTDOWN") {
+	else if (normalizedCommand == "SHUTDOWN" || normalizedCommand == "POWEROFF") {
 		SendEvent("SHUTDOWN");
-		HANDLE hToken;
-		if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-			TOKEN_PRIVILEGES tp;
-			LookupPrivilegeValueW(nullptr, L"SeShutdownPrivilege", &tp.Privileges[0].Luid);
-			tp.PrivilegeCount = 1;
-			tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-			AdjustTokenPrivileges(hToken, FALSE, &tp, 0, nullptr, nullptr);
-			CloseHandle(hToken);
+		if (!ExecutePowerAction(false)) {
+			LogError("Failed to execute SHUTDOWN command");
 		}
-		InitiateSystemShutdownExW(
-			nullptr,
-			const_cast<LPWSTR>(L"System shutdown initiated by parental control"),
-			0,      
-			TRUE,     
-			FALSE,    
-			SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED
-		);
 	}
-	else if (command == "RESTART") {
+	else if (normalizedCommand == "RESTART" || normalizedCommand == "REBOOT") {
 		SendEvent("RESTART");
-		HANDLE hToken;
-		if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-			TOKEN_PRIVILEGES tp;
-			LookupPrivilegeValueW(nullptr, L"SeShutdownPrivilege", &tp.Privileges[0].Luid);
-			tp.PrivilegeCount = 1;
-			tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-			AdjustTokenPrivileges(hToken, FALSE, &tp, 0, nullptr, nullptr);
-			CloseHandle(hToken);
+		if (!ExecutePowerAction(true)) {
+			LogError("Failed to execute RESTART command");
 		}
-		InitiateSystemShutdownExW(
-			nullptr,
-			const_cast<LPWSTR>(L"System restart initiated by parental control"),
-			0,
-			TRUE,
-			TRUE,
-			SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED
-		);
 	}
 }
 
@@ -128,6 +130,7 @@ static void DelayedExecute(const std::string& command, int delaySec) {
 void CmdInit(const std::wstring& unlockPin) {
 	g_unlockPin = unlockPin;
 	OverlaySetPinCallback(OnPinEntered);
+	OverlaySetActionCallback(OnOverlayAction);
 }
 
 void CmdSetSendFunc(void(*sendFunc)(const std::string& msg)) {
